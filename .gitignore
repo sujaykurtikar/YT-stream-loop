@@ -28,8 +28,8 @@ wheels/
 logs/*.log
 
 # Project specific
-playlist/playlist.txt
-assets/background/*
-assets/music/*
+# playlist/playlist.txt
+# assets/background/*
+# assets/music/*
 !assets/background/.gitkeep
 !assets/music/.gitkeep
