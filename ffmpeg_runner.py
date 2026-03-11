@@ -25,7 +25,7 @@ class FFmpegRunner:
         """
         cmd = [
             "ffmpeg",
-            "-re", # Read input at native frame rate
+            "-re", 
             "-stream_loop", "-1",
             "-i", settings.BACKGROUND_VIDEO_PATH,
             "-stream_loop", "-1",
@@ -38,7 +38,9 @@ class FFmpegRunner:
             "-ar", "44100",
             "-map", "0:v:0", # Use video from first input
             "-map", "1:a:0", # Use audio from second input
+            "-bsf:a", "aac_adtstoasc",
             "-fflags", "+genpts",
+            "-rtmp_live", "live",
             "-f", "flv",
             settings.full_rtmp_url
         ]
@@ -57,11 +59,14 @@ class FFmpegRunner:
         logger.info(f"Starting FFmpeg with command: {' '.join(cmd)}")
         
         try:
+            # Open a file for FFmpeg output
+            self.output_log = open("ffmpeg_output.log", "w", encoding="utf-8")
+            
             # Start process in background
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=self.output_log,
                 text=True,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
             )
