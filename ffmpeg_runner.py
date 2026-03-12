@@ -25,9 +25,13 @@ class FFmpegRunner:
         """
         cmd = [
             "ffmpeg",
-            "-re", 
+            "-re", # Read input at native frame rate
+            "-fflags", "+genpts+igndts+flush_packets", # Maintain timestamp continuity and flush packets
+            "-avoid_negative_ts", "make_zero", # Ensure timestamps start at zero
+            "-thread_queue_size", "512",
             "-stream_loop", "-1",
             "-i", settings.BACKGROUND_VIDEO_PATH,
+            "-thread_queue_size", "512",
             "-stream_loop", "-1",
             "-f", "concat",
             "-safe", "0",
@@ -40,7 +44,7 @@ class FFmpegRunner:
             "-map", "1:a:0", # Use audio from second input
             "-pix_fmt", "yuv420p", # Ensure compatibility
             "-bsf:a", "aac_adtstoasc",
-            "-fflags", "+genpts",
+            "-flvflags", "+no_duration_filesize", # Essential for continuous live streams
             "-rtmp_live", "live",
             "-f", "flv",
             settings.full_rtmp_url
