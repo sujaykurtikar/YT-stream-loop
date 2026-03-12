@@ -31,10 +31,10 @@ def generate_playlist():
     with open(playlist_file, 'w', encoding='utf-8') as f:
         for file in files:
             # FFmpeg concat format requires: file 'path/to/file'
-            # We use absolute paths or paths relative to the working directory
-            full_path = os.path.abspath(os.path.join(music_dir, file))
-            # Escape single quotes in filenames for FFmpeg
-            safe_path = full_path.replace("'", "'\\''")
+            # We use relative paths for cross-platform compatibility
+            rel_path = os.path.join(music_dir, file)
+            # Ensure path uses forward slashes for FFmpeg compatibility
+            safe_path = rel_path.replace("\\", "/").replace("'", "'\\''")
             f.write(f"file '{safe_path}'\n")
 
     logger.info(f"Playlist generated at: {playlist_file}")

@@ -55,6 +55,14 @@ class FFmpegRunner:
             logger.warning("FFmpeg is already running.")
             return self.process.pid
 
+        # Verify FFmpeg is installed
+        try:
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            error_msg = "FFmpeg not found or not working. Please ensure it's installed and in your PATH."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
         cmd = self.build_command()
         logger.info(f"Starting FFmpeg with command: {' '.join(cmd)}")
         

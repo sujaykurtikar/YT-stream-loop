@@ -6,6 +6,7 @@ from config import settings
 from stream_manager import StreamManager
 from health_monitor import HealthMonitor
 from betterstack_logger import betterstack_logger
+from generate_playlist import generate_playlist
 
 # Configure Logging
 logging.basicConfig(
@@ -23,7 +24,8 @@ monitor = HealthMonitor(manager)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start health monitor and send startup log
+    # Startup: Generate playlist, start health monitor and send startup log
+    generate_playlist()
     await monitor.start()
     await betterstack_logger.send_log("yt-stream-loop service started.")
     yield
