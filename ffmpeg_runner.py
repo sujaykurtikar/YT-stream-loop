@@ -32,12 +32,16 @@ class FFmpegRunner:
             "-f", "concat",
             "-safe", "0",
             "-i", settings.PLAYLIST_PATH,
-            "-c:v", "copy",
+            "-c:v", "libx264",
+            "-b:v", settings.VIDEO_BITRATE,
+            "-preset", "veryfast",
+            "-tune", "stillimage", # Optimized for static background loop
             "-c:a", "aac",
             "-b:a", "128k",
             "-ar", "44100",
             "-map", "0:v:0", # Use video from first input
             "-map", "1:a:0", # Use audio from second input
+            "-pix_fmt", "yuv420p", # Ensure compatibility
             "-bsf:a", "aac_adtstoasc",
             "-fflags", "+genpts",
             "-rtmp_live", "live",

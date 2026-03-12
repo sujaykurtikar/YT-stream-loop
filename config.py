@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     BACKGROUND_VIDEO_PATH: str = "assets/background/backgroundVideo.mp4"
     PLAYLIST_PATH: str = "playlist/playlist.txt"
     YOUTUBE_RTMP_URL: str = "rtmp://a.rtmp.youtube.com/live2"
+    VIDEO_BITRATE: str = "6000k"
     
     # Better Stack Logging Settings
     BETTER_STACK_TOKEN: str = ""
