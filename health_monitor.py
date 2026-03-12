@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from stream_manager import StreamManager
 from config import settings
 from betterstack_logger import betterstack_logger
@@ -61,7 +62,18 @@ class HealthMonitor:
                 if not status["is_running"] and self.manager.should_be_running:
                     msg = "Stream crash detected! Attempting auto-restart..."
                     logger.warning(msg)
-                    await betterstack_logger.send_log(msg, level="WARNING")
+                    
+                    # Try to capture last FFmpeg error
+                    error_details = ""
+                    try:
+                        if os.path.exists("ffmpeg_output.log"):
+                            with open("ffmpeg_output.log", "r", encoding="utf-8") as f:
+                                lines = f.readlines()
+                                error_details = "\nLast FFmpeg logs:\n" + "".join(lines[-10:])
+                    except Exception as log_err:
+                        error_details = f"\nCould not read ffmpeg_output.log: {log_err}"
+                    
+                    await betterstack_logger.send_log(msg + error_details, level="WARNING")
                     
                     result = self.manager.start_stream()
                     if result["status"] == "success":
