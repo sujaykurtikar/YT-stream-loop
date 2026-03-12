@@ -63,13 +63,19 @@ class HealthMonitor:
                     msg = "Stream crash detected! Attempting auto-restart..."
                     logger.warning(msg)
                     
-                    # Try to capture last FFmpeg error
+                    # Try to capture last FFmpeg error efficiently
                     error_details = ""
                     try:
                         if os.path.exists("ffmpeg_output.log"):
-                            with open("ffmpeg_output.log", "r", encoding="utf-8") as f:
-                                lines = f.readlines()
-                                error_details = "\nLast FFmpeg logs:\n" + "".join(lines[-10:])
+                            with open("ffmpeg_output.log", "rb") as f:
+                                # Seek to near the end of the file
+                                f.seek(0, os.SEEK_END)
+                                size = f.tell()
+                                # Read last 2KB, which should contain enough logs
+                                offset = min(size, 2048)
+                                f.seek(-offset, os.SEEK_END)
+                                last_logs = f.read().decode('utf-8', errors='ignore')
+                                error_details = "\nLast FFmpeg logs:\n..." + last_logs[-1000:]
                     except Exception as log_err:
                         error_details = f"\nCould not read ffmpeg_output.log: {log_err}"
                     

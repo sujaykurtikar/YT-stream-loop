@@ -32,10 +32,7 @@ class FFmpegRunner:
             "-f", "concat",
             "-safe", "0",
             "-i", settings.PLAYLIST_PATH,
-            "-c:v", "libx264",
-            "-b:v", settings.VIDEO_BITRATE,
-            "-preset", "veryfast",
-            "-tune", "stillimage", # Optimized for static background loop
+            "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "128k",
             "-ar", "44100",
