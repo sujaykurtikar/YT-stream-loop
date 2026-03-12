@@ -39,6 +39,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.get("/")
+async def root():
+    """Root endpoint to handle platform health check pings and eliminate 404 logs."""
+    return {"status": "online", "message": "yt-stream-loop API is running"}
+
 @app.post("/stream/start")
 async def start_stream():
     result = manager.start_stream()
@@ -69,7 +74,25 @@ async def get_status():
 async def health_check():
     return {"status": "healthy", "ffmpeg": manager.get_status()}
 
+def find_available_port(start_port: int, max_attempts: int = 10) -> int:
+    """Finds an available port starting from start_port."""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("0.0.0.0", port))
+                return port
+            except socket.error:
+                continue
+    return start_port # Fallback to start_port
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8080))
+    # Use PORT from env, or default to 8080
+    requested_port = int(os.getenv("PORT", 8080))
+    port = find_available_port(requested_port)
+    
+    if port != requested_port:
+        logger.info(f"Port {requested_port} was busy. Automatically switched to {port}")
+    
     uvicorn.run(app, host="0.0.0.0", port=port)
