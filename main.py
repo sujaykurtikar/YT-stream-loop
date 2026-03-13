@@ -76,7 +76,7 @@ async def get_status():
 async def health_check():
     return {"status": "healthy", "ffmpeg": manager.get_status()}
 
-@app.get("/health-check")
+@app.head("/health-check")
 async def health_check_simple():
     """Simple health check returning JSON for platform monitoring."""
     return {"status": "ok"}
