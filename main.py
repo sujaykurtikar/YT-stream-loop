@@ -76,6 +76,11 @@ async def get_status():
 async def health_check():
     return {"status": "healthy", "ffmpeg": manager.get_status()}
 
+@app.get("/health-check")
+async def health_check_simple():
+    """Simple health check returning 'ok' for platform monitoring."""
+    return "ok"
+
 def find_available_port(start_port: int, max_attempts: int = 10) -> int:
     """Finds an available port starting from start_port."""
     import socket
