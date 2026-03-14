@@ -38,7 +38,7 @@ class FFmpegRunner:
             "-i", settings.PLAYLIST_PATH,
             "-c:v", "copy",
             "-c:a", "aac",
-            "-b:a", "128k",
+            "-b:a", "96k",
             "-ar", "44100",
             "-map", "0:v:0", # Use video from first input
             "-map", "1:a:0", # Use audio from second input
