@@ -16,18 +16,22 @@ class StreamManager:
             cls._instance = super(StreamManager, cls).__new__(cls)
             cls._instance.runner = FFmpegRunner()
             cls._instance.should_be_running = False
+            cls._instance.stream_config = {"mode": "video_only", "video_file": "ganeshmantra.mp4", "folder": "video_only"}
         return cls._instance
 
-    def start_stream(self) -> dict:
+    def start_stream(self, stream_config: dict = None) -> dict:
         """
         Starts the stream if it's not already running.
         """
         self.should_be_running = True
+        if stream_config is not None:
+            self.stream_config = stream_config
+            
         if self.runner.is_running():
             return {"status": "success", "message": "Stream is already running", "pid": self.runner.process.pid}
         
         try:
-            pid = self.runner.start()
+            pid = self.runner.start(self.stream_config)
             return {"status": "success", "message": "Stream started", "pid": pid}
         except Exception as e:
             return {"status": "error", "message": str(e)}

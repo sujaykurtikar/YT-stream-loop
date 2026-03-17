@@ -14,48 +14,73 @@ class FFmpegRunner:
     def __init__(self):
         self.process: Optional[subprocess.Popen] = None
 
-    def build_command(self) -> List[str]:
+    def build_command(self, stream_config: dict) -> List[str]:
         """
-        Constructs the FFmpeg command according to requirements.
-        -stream_loop -1: Loop the background video infinitely
-        -c:v copy: Do not re-encode video (save CPU)
-        -c:a aac: Encode audio to AAC
-        -b:a 128k: Audio bitrate
-        -fflags +genpts: Generate PTS for smooth streaming
+        Constructs the FFmpeg command according to requirements based on stream_config.
         """
-        cmd = [
-            "ffmpeg",
-            "-re", # Read input at native frame rate
-            "-fflags", "+genpts+igndts+flush_packets", # Maintain timestamp continuity and flush packets
-            "-avoid_negative_ts", "make_zero", # Ensure timestamps start at zero
-            "-thread_queue_size", "512",
-            "-stream_loop", "-1",
-            "-i", settings.BACKGROUND_VIDEO_PATH,
-            "-thread_queue_size", "512",
-            "-stream_loop", "-1",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", settings.PLAYLIST_PATH,
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", "96k",
-            "-ar", "44100",
-            "-map", "0:v:0", # Use video from first input
-            "-map", "1:a:0", # Use audio from second input
-            "-pix_fmt", "yuv420p", # Ensure compatibility
-            "-bsf:a", "aac_adtstoasc",
-            "-flvflags", "+no_duration_filesize", # Essential for continuous live streams
-            "-rtmp_live", "live",
-            "-f", "flv",
-            settings.full_rtmp_url
-        ]
+        folder = stream_config.get("folder", "background")
+        video_file = stream_config.get("video_file", "ganeshmantra.mp4")
+        video_path = os.path.join("assets", folder, video_file)
+        mode = stream_config.get("mode", "video_only")
+        
+        if mode == "video_only":
+            cmd = [
+                "ffmpeg",
+                "-re",
+                "-fflags", "+genpts+igndts+flush_packets",
+                "-avoid_negative_ts", "make_zero",
+                "-thread_queue_size", "512",
+                "-stream_loop", "-1",
+                "-i", video_path,
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "96k",
+                "-ar", "44100",
+                "-pix_fmt", "yuv420p",
+                "-bsf:a", "aac_adtstoasc",
+                "-flvflags", "+no_duration_filesize",
+                "-rtmp_live", "live",
+                "-f", "flv",
+                settings.full_rtmp_url
+            ]
+        else:
+            # background_and_audio mode
+            cmd = [
+                "ffmpeg",
+                "-re",
+                "-fflags", "+genpts+igndts+flush_packets",
+                "-avoid_negative_ts", "make_zero",
+                "-thread_queue_size", "512",
+                "-stream_loop", "-1",
+                "-i", video_path,
+                "-thread_queue_size", "512",
+                "-stream_loop", "-1",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", settings.PLAYLIST_PATH,
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "96k",
+                "-ar", "44100",
+                "-map", "0:v:0", # Use video from first input
+                "-map", "1:a:0", # Use audio from second input
+                "-pix_fmt", "yuv420p",
+                "-bsf:a", "aac_adtstoasc",
+                "-flvflags", "+no_duration_filesize",
+                "-rtmp_live", "live",
+                "-f", "flv",
+                settings.full_rtmp_url
+            ]
         return cmd
 
-    def start(self) -> int:
+    def start(self, stream_config: dict = None) -> int:
         """
         Starts the FFmpeg process.
         Returns: PID of the started process.
         """
+        if stream_config is None:
+            stream_config = {"mode": "video_only", "video_file": "ganeshmantra.mp4", "folder": "video_only"}
+
         if self.is_running():
             logger.warning("FFmpeg is already running.")
             return self.process.pid
@@ -68,7 +93,7 @@ class FFmpegRunner:
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        cmd = self.build_command()
+        cmd = self.build_command(stream_config)
         logger.info(f"Starting FFmpeg with command: {' '.join(cmd)}")
         
         try:
