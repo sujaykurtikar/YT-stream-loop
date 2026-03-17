@@ -137,9 +137,12 @@ async def check_bandwidth_video_only(
         "mode": "video_only",
         "file": video_file.value,
         "bandwidth_info": {
-            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
-            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
-            "is_optimized": file_stats.get("is_optimized")
+            "video_bitrate_kbps": file_stats.get("video_bitrate_kbps"),
+            "audio_bitrate_kbps": file_stats.get("audio_bitrate_kbps"),
+            "total_bitrate_kbps": file_stats.get("total_bitrate_kbps"),
+            "hourly_mb": f"{file_stats.get('hourly_mb')} MB/hr",
+            "monthly_gb_estimate": f"{file_stats.get('monthly_gb')} GB/month",
+            "is_within_limit": file_stats.get("is_optimized")
         }
     }
 
@@ -161,10 +164,13 @@ async def check_bandwidth_background(
         "video_file": video_file.value,
         "audio_category": audio_category.value,
         "bandwidth_info": {
-            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
-            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "video_bitrate_kbps": file_stats.get("video_bitrate_kbps"),
+            "audio_bitrate_kbps": file_stats.get("audio_bitrate_kbps"),
+            "total_bitrate_kbps": file_stats.get("total_bitrate_kbps"),
+            "hourly_mb": f"{file_stats.get('hourly_mb')} MB/hr",
+            "monthly_gb_estimate": f"{file_stats.get('monthly_gb')} GB/month",
             "is_optimized": file_stats.get("is_optimized"),
-            "note": "Includes estimated 96kbps audio stream"
+            "note": "Audio estimate based on 96kbps AAC"
         }
     }
 
@@ -192,8 +198,11 @@ async def start_stream_video_only(
         file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
         result["bandwidth_info"] = {
             "mode": "video_only (combined file)",
-            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
-            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "video_bitrate_kbps": file_stats.get("video_bitrate_kbps"),
+            "audio_bitrate_kbps": file_stats.get("audio_bitrate_kbps"),
+            "total_bitrate_kbps": file_stats.get("total_bitrate_kbps"),
+            "hourly_mb": f"{file_stats.get('hourly_mb')} MB/hr",
+            "monthly_gb_estimate": f"{file_stats.get('monthly_gb')} GB/month",
             "is_within_limit": file_stats.get("is_optimized")
         }
     
@@ -227,8 +236,11 @@ async def start_stream_with_audio(
         file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
         result["bandwidth_info"] = {
             "mode": "background_and_audio (combined estimate)",
-            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
-            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "video_bitrate_kbps": file_stats.get("video_bitrate_kbps"),
+            "audio_bitrate_kbps": file_stats.get("audio_bitrate_kbps"),
+            "total_bitrate_kbps": file_stats.get("total_bitrate_kbps"),
+            "hourly_mb": f"{file_stats.get('hourly_mb')} MB/hr",
+            "monthly_gb_estimate": f"{file_stats.get('monthly_gb')} GB/month",
             "is_within_limit": file_stats.get("is_optimized")
         }
     
@@ -272,6 +284,30 @@ async def compress_video_only(
     result = manager.compress_asset("video_only", video_file.value, target_v_bitrate)
     return handle_result(result)
 
+
+@app.post("/assets/trim/video-only", tags=["Asset Management"])
+async def trim_video_only(
+    video_file: VideoOnlyFileEnum = Query(..., description="Select the video-only file to trim"),
+    duration: float = Query(4.0, description="Target duration in seconds (4.0 is recommended for YouTube loops)")
+):
+    """
+    Trims a video loop to a shorter duration. 
+    This fix is perfect for short loops to satisfy YouTube's 4s keyframe limit 
+    at the loop point with ZERO extra bandwidth.
+    """
+    result = manager.trim_asset("video_only", video_file.value, duration)
+    return handle_result(result)
+
+@app.post("/assets/trim/background", tags=["Asset Management"])
+async def trim_background(
+    video_file: BackgroundFileEnum = Query(..., description="Select the background video to trim"),
+    duration: float = Query(4.0, description="Target duration in seconds (4.0 is recommended for YouTube loops)")
+):
+    """
+    Trims a background video loop to a shorter duration.
+    """
+    result = manager.trim_asset("background", video_file.value, duration)
+    return handle_result(result)
 
 @app.post("/stream/stop")
 async def stop_stream():

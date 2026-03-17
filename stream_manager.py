@@ -86,25 +86,26 @@ class StreamManager:
                     file_path = os.path.join(path, file)
                     metadata = self._probe_file(file_path)
                     
-                    # Calculate hourly bandwidth
-                    # Bitrate is in bits/sec. 
-                    # Bits to Megabytes: bits / (8 * 1024 * 1024)
-                    # Seconds to Hour: * 3600
-                    bitrate = metadata.get("bitrate", 0)
+                    # Calculate bitrates (bps)
+                    video_bitrate = metadata.get("bitrate", 0)
+                    audio_bitrate = 96000 if folder_type == "background" else 0 # 96kbps estimate
+                    total_bitrate = video_bitrate + audio_bitrate
                     
-                    # If background mode, we add the 96kbps audio stream which will be mixed in
-                    total_bitrate = bitrate
-                    if folder_type == "background":
-                        total_bitrate += 96000 # 96kbps audio
-                    
+                    # Bandwidth calculations
                     hourly_mb = (total_bitrate / (8 * 1024 * 1024)) * 3600
+                    daily_gb = (hourly_mb * 24) / 1024
+                    monthly_gb = daily_gb * 30
                     
                     report.append({
                         "file_name": file,
                         "folder": folder_type,
                         "resolution": metadata.get("resolution", "N/A"),
-                        "bitrate_kbps": round(total_bitrate / 1000, 2),
+                        "video_bitrate_kbps": round(video_bitrate / 1000, 2),
+                        "audio_bitrate_kbps": round(audio_bitrate / 1000, 2),
+                        "total_bitrate_kbps": round(total_bitrate / 1000, 2),
                         "hourly_mb": round(hourly_mb, 2),
+                        "daily_gb": round(daily_gb, 2),
+                        "monthly_gb": round(monthly_gb, 2),
                         "is_optimized": hourly_mb <= 140 # Threshold around 90GB/mo target
                     })
         return report
@@ -135,52 +136,109 @@ class StreamManager:
     def compress_asset(self, folder: str, file_name: str, target_v_bitrate: str = "200k") -> dict:
         """
         Compresses a file to target bitrate using FFmpeg.
+        Forces a fixed GOP to satisfy YouTube keyframe requirements.
         """
-        input_path = os.path.join("assets", folder, file_name)
-        if not os.path.exists(input_path):
-            return {"status": "error", "message": f"File {input_path} not found"}
-
-        # Use a temporary name for compression
         base, ext = os.path.splitext(file_name)
+        input_path = os.path.join("assets", folder, file_name)
+        backup_path = os.path.join("assets", folder, f"{base}_original{ext}")
+        
+        # If an original backup already exists, use it as the source for better quality
+        source_path = backup_path if os.path.exists(backup_path) else input_path
+        
+        if not os.path.exists(source_path):
+            return {"status": "error", "message": f"Source file {source_path} not found"}
+
         output_name = f"{base}_temp{ext}"
         output_path = os.path.join("assets", folder, output_name)
-        backup_path = os.path.join("assets", folder, f"{base}_original{ext}")
 
         # Compression Command
-        # -r 15: Reduce framerate to 15fps
-        # -s 1280x720: Ensure resolution is 720p
-        # -c:v libx264: Use H.264
-        # -c:a aac -b:a 96k: Target audio bitrate
+        # -r 15: 15fps
+        # -g 30: Keyframe every 2 seconds
+        # -sc_threshold 0: Disable scene change detection to keep GOP fixed
         cmd = [
-            "ffmpeg", "-i", input_path,
+            "ffmpeg", "-i", source_path,
             "-r", "15",
             "-s", "1280x720",
             "-c:v", "libx264",
             "-b:v", target_v_bitrate,
-            "-maxrate", "250k",
-            "-bufsize", "500k",
+            "-g", "30",
+            "-keyint_min", "30",
+            "-sc_threshold", "0",
+            "-maxrate", "350k",
+            "-bufsize", "700k",
             "-c:a", "aac",
             "-b:a", "96k",
             output_path, "-y"
         ]
 
         try:
-            logger.info(f"Starting compression for {file_name}...")
+            logger.info(f"Starting compression for {file_name} using source {source_path}...")
             subprocess.run(cmd, check=True, capture_output=True)
             
-            # If successful, backup original and swap
-            if os.path.exists(backup_path):
-                os.remove(backup_path) # Clean up previous backup if any
-                
-            os.rename(input_path, backup_path)
+            # If we used the original input_path as source, create the backup now
+            if source_path == input_path:
+                os.rename(input_path, backup_path)
+            
+            # Replace the target file with the new compressed version
+            if os.path.exists(input_path):
+                os.remove(input_path)
             os.rename(output_path, input_path)
             
             logger.info(f"Compression complete for {file_name}.")
-            return {"status": "success", "message": f"Compressed {file_name}. Original backed up as {os.path.basename(backup_path)}"}
+            return {"status": "success", "message": f"Compressed {file_name} with 2s keyframe interval. Source used: {os.path.basename(source_path)}"}
         except subprocess.CalledProcessError as e:
             error_details = e.stderr.decode()
             logger.error(f"Compression failed: {error_details}")
+            if os.path.exists(output_path): os.remove(output_path)
             return {"status": "error", "message": "Compression failed. Check logs."}
         except Exception as e:
             logger.error(f"Error during compression: {e}")
+            if os.path.exists(output_path): os.remove(output_path)
+            return {"status": "error", "message": str(e)}
+
+    def trim_asset(self, folder: str, file_name: str, duration: float = 4.0) -> dict:
+        """
+        Trims a video to a specific duration (to fix loop keyframes).
+        This is perfect for short loops to keep bandwidth extremely low.
+        """
+        base, ext = os.path.splitext(file_name)
+        input_path = os.path.join("assets", folder, file_name)
+        backup_path = os.path.join("assets", folder, f"{base}_original{ext}")
+        
+        source_path = backup_path if os.path.exists(backup_path) else input_path
+        if not os.path.exists(source_path):
+            return {"status": "error", "message": f"Source file {source_path} not found"}
+
+        output_name = f"{base}_temp{ext}"
+        output_path = os.path.join("assets", folder, output_name)
+
+        # Trimming Command
+        # This re-encodes but ONLY the short duration, so the final file is tiny!
+        cmd = [
+            "ffmpeg", "-i", source_path,
+            "-t", str(duration),
+            "-r", "15",
+            "-s", "1280x720",
+            "-c:v", "libx264",
+            "-crf", "28",           # High compression for static loops
+            "-g", "999",            # Only one keyframe at the very start
+            "-c:a", "aac",
+            "-b:a", "96k",
+            output_path, "-y"
+        ]
+
+        try:
+            logger.info(f"Trimming {file_name} to {duration}s...")
+            subprocess.run(cmd, check=True, capture_output=True)
+            
+            if source_path == input_path:
+                os.rename(input_path, backup_path)
+            
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            os.rename(output_path, input_path)
+            
+            return {"status": "success", "message": f"Trimmed to {duration}s. This loop now fulfills YouTube keyframe requirement via the loop point."}
+        except Exception as e:
+            logger.error(f"Trimming failed: {e}")
             return {"status": "error", "message": str(e)}

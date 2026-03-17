@@ -1,5 +1,1 @@
-file '../assets/music/ambientgarden-spiritual-meditation-30-mins-201945.mp3'
-file '../assets/music/delosound-ambient-background-339939.mp3'
-file '../assets/music/grand_project-deep-meditation-192828.mp3'
-file '../assets/music/natureseye-autumn-sky-meditation-7618.mp3'
-file '../assets/music/nikitakondrashev-meditation-ambience-262905.mp3'
+file '../assets/music/Ganesh mantra/Unlock Success & Remove Obstacles_ Om Gan Ganapataye Namo Namah  Powerful Ganesh Mantra 2026.mp3'
