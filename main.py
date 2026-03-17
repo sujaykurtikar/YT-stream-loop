@@ -154,9 +154,22 @@ async def check_bandwidth_background(
     """
     Check estimated bandwidth for background + audio mode.
     (Dry-run: does NOT start the stream)
+    Audio bitrate is dynamically probed from actual files in the selected category.
     """
     report = manager.get_bandwidth_report()
     file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
+    
+    # Dynamically probe real audio bitrate for selected category
+    audio_bitrate_bps = manager.get_audio_bitrate_for_category(audio_category.value)
+    audio_bitrate_kbps = round(audio_bitrate_bps / 1000, 2)
+    
+    # Recalculate totals with real audio bitrate
+    video_bitrate_kbps = file_stats.get("video_bitrate_kbps", 0)
+    total_bitrate_kbps = round(video_bitrate_kbps + audio_bitrate_kbps, 2)
+    hourly_mb = round((total_bitrate_kbps * 1000 * 3600) / (8 * 1024 * 1024), 2)
+    daily_gb = round((hourly_mb * 24) / 1024, 2)
+    monthly_gb = round(daily_gb * 30, 2)
+    
     return {
         "status": "success",
         "action": "bandwidth_check",
@@ -164,13 +177,13 @@ async def check_bandwidth_background(
         "video_file": video_file.value,
         "audio_category": audio_category.value,
         "bandwidth_info": {
-            "video_bitrate_kbps": file_stats.get("video_bitrate_kbps"),
-            "audio_bitrate_kbps": file_stats.get("audio_bitrate_kbps"),
-            "total_bitrate_kbps": file_stats.get("total_bitrate_kbps"),
-            "hourly_mb": f"{file_stats.get('hourly_mb')} MB/hr",
-            "monthly_gb_estimate": f"{file_stats.get('monthly_gb')} GB/month",
-            "is_optimized": file_stats.get("is_optimized"),
-            "note": "Audio estimate based on 96kbps AAC"
+            "video_bitrate_kbps": video_bitrate_kbps,
+            "audio_bitrate_kbps": audio_bitrate_kbps,
+            "total_bitrate_kbps": total_bitrate_kbps,
+            "hourly_mb": f"{hourly_mb} MB/hr",
+            "daily_gb": f"{daily_gb} GB/day",
+            "monthly_gb_estimate": f"{monthly_gb} GB/month",
+            "is_optimized": monthly_gb < 90
         }
     }
 

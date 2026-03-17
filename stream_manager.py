@@ -133,6 +133,49 @@ class StreamManager:
             logger.error(f"Error probing {file_path}: {e}")
             return {"bitrate": 0, "resolution": "N/A"}
 
+    def get_audio_bitrate_for_category(self, category: str = None) -> int:
+        """
+        Dynamically probes audio files in the selected music category.
+        Returns the average bitrate in bps.
+        Falls back to 128000 bps (128kbps) if no files found.
+        """
+        if category and category != ".":
+            folder_path = os.path.join("assets", "music", category)
+        else:
+            folder_path = os.path.join("assets", "music")
+        
+        if not os.path.exists(folder_path):
+            logger.warning(f"Music folder not found: {folder_path}, using 128kbps fallback")
+            return 128000
+
+        audio_extensions = (".mp3", ".aac", ".wav", ".flac", ".ogg", ".m4a")
+        bitrates = []
+        
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                if file.lower().endswith(audio_extensions):
+                    file_path = os.path.join(root, file)
+                    try:
+                        cmd = [
+                            "ffprobe", "-v", "error", "-show_entries",
+                            "format=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1",
+                            file_path
+                        ]
+                        result = subprocess.check_output(cmd, shell=True).decode().strip()
+                        if result and result.isdigit():
+                            bitrates.append(int(result))
+                    except Exception as e:
+                        logger.warning(f"Could not probe {file}: {e}")
+            break  # Don't recurse unless category is None or "all"
+
+        if not bitrates:
+            logger.warning(f"No audio bitrates found in {folder_path}, using 128kbps fallback")
+            return 128000
+
+        avg_bitrate = int(sum(bitrates) / len(bitrates))
+        logger.info(f"Probed {len(bitrates)} audio files in '{folder_path}': avg {avg_bitrate//1000}kbps")
+        return avg_bitrate
+
     def compress_asset(self, folder: str, file_name: str, target_v_bitrate: str = "200k") -> dict:
         """
         Compresses a file to target bitrate using FFmpeg.
