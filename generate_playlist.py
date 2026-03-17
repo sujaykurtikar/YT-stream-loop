@@ -10,36 +10,43 @@ def generate_playlist(category: str = None):
     Scans the music directory (or a specific category subdirectory) 
     and generates a playlist.txt in FFmpeg concat format.
     """
-    music_dir = settings.MUSIC_DIR
-    if category:
-        music_dir = os.path.join(music_dir, category)
-        
+    music_root = settings.MUSIC_DIR
+    target_dir = os.path.join(music_root, category) if category and category != "all" else music_root
+    
     playlist_file = settings.PLAYLIST_PATH
 
-    if not os.path.exists(music_dir):
-        logger.error(f"Music directory not found: {music_dir}")
+    if not os.path.exists(target_dir):
+        logger.error(f"Music directory not found: {target_dir}")
         return
 
     audio_extensions = ('.mp3', '.wav', '.flac', '.m4a', '.ogg')
-    files = [f for f in os.listdir(music_dir) if f.lower().endswith(audio_extensions)]
+    files_with_paths = []
+
+    if category == "all":
+        # Recursive scan for everything
+        for root, _, filenames in os.walk(music_root):
+            for f in filenames:
+                if f.lower().endswith(audio_extensions):
+                    files_with_paths.append(os.path.join(root, f))
+    else:
+        # Shallow scan for specific category or root
+        for f in os.listdir(target_dir):
+            if f.lower().endswith(audio_extensions):
+                files_with_paths.append(os.path.join(target_dir, f))
     
-    if not files:
-        logger.warning(f"No audio files found in {music_dir}")
+    if not files_with_paths:
+        logger.warning(f"No audio files found in {target_dir}")
         return
 
     # Sort files to ensure consistent order
-    files.sort()
+    files_with_paths.sort()
 
-    logger.info(f"Generating playlist for {category or 'root'} with {len(files)} files...")
+    logger.info(f"Generating playlist for {category or 'root'} with {len(files_with_paths)} files...")
     
     with open(playlist_file, 'w', encoding='utf-8') as f:
-        for file in files:
-            # FFmpeg concat format requires: file 'path/to/file'
-            # Paths should be relative to the playlist file itself
-            abs_audio_path = os.path.abspath(os.path.join(music_dir, file))
-            playlist_dir = os.path.dirname(os.path.abspath(playlist_file))
-            rel_path = os.path.relpath(abs_audio_path, playlist_dir)
-            
+        playlist_dir = os.path.dirname(os.path.abspath(playlist_file))
+        for abs_path in files_with_paths:
+            rel_path = os.path.relpath(abs_path, playlist_dir)
             # Ensure path uses forward slashes for FFmpeg compatibility
             safe_path = rel_path.replace("\\", "/").replace("'", "'\\''")
             f.write(f"file '{safe_path}'\n")

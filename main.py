@@ -1,7 +1,9 @@
 import logging
 import os
+import subprocess
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
+from typing import List, Dict
 from enum import Enum
 from config import settings
 from stream_manager import StreamManager
@@ -10,24 +12,60 @@ class StreamMode(str, Enum):
     video_only = "video_only"
     background_and_audio = "background_and_audio"
 
-def get_files_from_dir(directory: str, fallback: list) -> list:
-    if os.path.exists(directory):
-        files = [f for f in os.listdir(directory) if f.endswith(('.mp4', '.mkv'))]
-        if files: return files
-    return fallback
+# Helper to get files with bandwidth info
+def get_file_choices(directory: str, add_audio_bitrate: bool = False) -> Dict[str, str]:
+    choices = {}
+    if not os.path.exists(directory):
+        return choices
+    
+    for f in os.listdir(directory):
+        if f.endswith(('.mp4', '.mkv', '.mov')):
+            # Get bitrate
+            try:
+                # Use shell=True for broader Windows PATH compatibility
+                cmd = f'ffprobe -v quiet -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1 "{os.path.join(directory, f)}"'
+                output = subprocess.check_output(cmd, shell=True).decode().strip()
+                bitrate = int(output or 0)
+                
+                if add_audio_bitrate:
+                    bitrate += 96000 # Add audio bitrate for background videos
+                
+                hourly_mb = round((bitrate / (8 * 1024 * 1024)) * 3600, 1)
+                kbps = round(bitrate / 1000, 0)
+                label = f.split(".")[0].replace("-", "_").replace(" ", "_")
+                
+                # Make label very explicit
+                suffix = "COMBINED" if add_audio_bitrate else "TOTAL"
+                choices[f"{label}__{suffix}_{kbps}kbps_{hourly_mb}MB_hr"] = f
+            except Exception as e:
+                logger.debug(f"Bandwidth probe failed for {f}: {e}")
+                label = f.split(".")[0].replace("-", "_").replace(" ", "_")
+                choices[label] = f
+    return choices
 
-bg_files = get_files_from_dir(os.path.join("assets", "background"), ["backgroundVideo.mp4"])
-vo_files = get_files_from_dir(os.path.join("assets", "video_only"), ["ganeshmantra.mp4"])
+def get_bandwidth_summary_text():
+    """Generates a plain text summary for the Swagger UI description."""
+    try:
+        report = manager.get_bandwidth_report()
+        if not report: return "No video assets found."
+        
+        lines = ["### 📊 Bandwidth Estimation Summary", "| File | Bitrate | Hourly Usage | State |", "| :--- | :--- | :--- | :--- |"]
+        for item in report:
+            status = "✅ OK" if item["is_optimized"] else "⚠️ HIGH"
+            lines.append(f"| {item['file_name']} | {item['bitrate_kbps']}k | {item['hourly_mb']} MB/hr | {status} |")
+        return "\n".join(lines)
+    except:
+        return "Bandwidth estimation is loading..."
 
-# Create Enums for both types
-BackgroundFileEnum = Enum('BackgroundFileEnum', {
-    f.split(".")[0].replace("-", "_").replace(" ", "_"): f 
-    for f in bg_files
-})
-VideoOnlyFileEnum = Enum('VideoOnlyFileEnum', {
-    f.split(".")[0].replace("-", "_").replace(" ", "_"): f 
-    for f in vo_files
-})
+# Generate the enums with bandwidth labels
+bg_choices = get_file_choices(os.path.join("assets", "background"), add_audio_bitrate=True)
+vo_choices = get_file_choices(os.path.join("assets", "video_only"), add_audio_bitrate=False)
+
+if not bg_choices: bg_choices = {"None": "none"}
+if not vo_choices: vo_choices = {"None": "none"}
+
+BackgroundFileEnum = Enum('BackgroundFileEnum', bg_choices)
+VideoOnlyFileEnum = Enum('VideoOnlyFileEnum', vo_choices)
 
 def get_subdirs(directory: str) -> list:
     if os.path.exists(directory):
@@ -35,14 +73,12 @@ def get_subdirs(directory: str) -> list:
     return []
 
 music_categories = get_subdirs(settings.MUSIC_DIR)
-if not music_categories:
-    # Fallback to music root if no subfolders exist
-    MusicCategoryEnum = Enum('MusicCategoryEnum', {'General': '.'})
-else:
-    MusicCategoryEnum = Enum('MusicCategoryEnum', {
-        d.replace("-", "_").replace(" ", "_"): d 
-        for d in music_categories
-    })
+# Always include 'All' and 'General' options
+cat_choices = {"All_Music": "all", "General_Root": "."}
+for d in music_categories:
+    cat_choices[d.replace("-", "_").replace(" ", "_")] = d
+
+MusicCategoryEnum = Enum('MusicCategoryEnum', cat_choices)
 from health_monitor import HealthMonitor
 from betterstack_logger import betterstack_logger
 from generate_playlist import generate_playlist
@@ -85,17 +121,82 @@ async def root():
     """Root endpoint to handle platform health check pings and eliminate 404 logs."""
     return {"status": "online", "message": "yt-stream-loop API is running"}
 
+@app.post("/stream/check/video-only", tags=["Stream Management"])
+async def check_bandwidth_video_only(
+    video_file: VideoOnlyFileEnum = Query(..., description="Select file to check bandwidth")
+):
+    """
+    Check estimated bandwidth for a video-only asset.
+    (Dry-run: does NOT start the stream)
+    """
+    report = manager.get_bandwidth_report()
+    file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
+    return {
+        "status": "success",
+        "action": "bandwidth_check",
+        "mode": "video_only",
+        "file": video_file.value,
+        "bandwidth_info": {
+            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
+            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "is_optimized": file_stats.get("is_optimized")
+        }
+    }
+
+@app.post("/stream/check/background-and-audio", tags=["Stream Management"])
+async def check_bandwidth_background(
+    video_file: BackgroundFileEnum = Query(..., description="Select background video to check"),
+    audio_category: MusicCategoryEnum = Query(..., description="Music category for estimated total")
+):
+    """
+    Check estimated bandwidth for background + audio mode.
+    (Dry-run: does NOT start the stream)
+    """
+    report = manager.get_bandwidth_report()
+    file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
+    return {
+        "status": "success",
+        "action": "bandwidth_check",
+        "mode": "background_and_audio",
+        "video_file": video_file.value,
+        "audio_category": audio_category.value,
+        "bandwidth_info": {
+            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
+            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "is_optimized": file_stats.get("is_optimized"),
+            "note": "Includes estimated 96kbps audio stream"
+        }
+    }
+
 @app.post("/stream/start/video-only", tags=["Stream Management"])
 async def start_stream_video_only(
     video_file: VideoOnlyFileEnum = Query(..., description="Select a combined video+audio file from assets/video_only")
 ):
-    """Start stream using a single combined video and audio file (looping)."""
+    """
+    Start stream using a single combined video and audio file (looping).
+    
+    ### 📊 Bandwidth usage for these files:
+    - **ganeshmantra.mp4**: ~101 MB/hr (Optimized)
+    - Others: See Bandwidth Report for details.
+    """
     stream_config = {
         "mode": StreamMode.video_only.value, 
         "video_file": video_file.value, 
         "folder": "video_only"
     }
     result = manager.start_stream(stream_config)
+    
+    # Add bandwidth context to response
+    if result["status"] == "success":
+        report = manager.get_bandwidth_report()
+        file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
+        result["bandwidth_info"] = {
+            "mode": "video_only (combined file)",
+            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
+            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "is_within_limit": file_stats.get("is_optimized")
+        }
+    
     return handle_result(result)
 
 @app.post("/stream/start/background-and-audio", tags=["Stream Management"])
@@ -103,7 +204,13 @@ async def start_stream_with_audio(
     video_file: BackgroundFileEnum = Query(..., description="Select a background video from assets/background"),
     audio_category: MusicCategoryEnum = Query(..., description="Select the music category (playlist) to use")
 ):
-    """Start stream using a background video + the separate audio playlist."""
+    """
+    Start stream using a background video + the separate audio playlist.
+    
+    ### ⚠️ Bandwidth Warning (incl. 96kbps audio):
+    - **backgroundVideo.mp4**: ~150 MB/hr
+    - **backgroundVideo_old.mp4**: ~3,000 MB/hr (HIGH USAGE!)
+    """
     # Re-generate the playlist based on chosen category
     generate_playlist(audio_category.value if audio_category.value != "." else None)
     
@@ -113,6 +220,18 @@ async def start_stream_with_audio(
         "folder": "background"
     }
     result = manager.start_stream(stream_config)
+    
+    # Add bandwidth context to response
+    if result["status"] == "success":
+        report = manager.get_bandwidth_report()
+        file_stats = next((item for item in report if item["file_name"] == video_file.value), {})
+        result["bandwidth_info"] = {
+            "mode": "background_and_audio (combined estimate)",
+            "total_bitrate_kbps": file_stats.get("bitrate_kbps"),
+            "estimated_hourly_usage": f"{file_stats.get('hourly_mb')} MB/hr",
+            "is_within_limit": file_stats.get("is_optimized")
+        }
+    
     return handle_result(result)
 
 def handle_result(result: dict):
@@ -123,6 +242,35 @@ def handle_result(result: dict):
 # Remove the old consolidated endpoint
 # @app.post("/stream/start")
 # ...
+
+@app.get("/assets/bandwidth-report", tags=["Asset Management"])
+async def bandwidth_report():
+    """Returns a report on all video assets and their estimated bandwidth consumption."""
+    return manager.get_bandwidth_report()
+
+@app.post("/assets/compress/background", tags=["Asset Management"])
+async def compress_background(
+    video_file: BackgroundFileEnum = Query(..., description="Select the background video to compress"),
+    target_v_bitrate: str = Query("200k", description="Target video bitrate (e.g., 200k, 500k)")
+):
+    """
+    Compresses a background video. 
+    Backs up original and optimizes for bandwidth.
+    """
+    result = manager.compress_asset("background", video_file.value, target_v_bitrate)
+    return handle_result(result)
+
+@app.post("/assets/compress/video-only", tags=["Asset Management"])
+async def compress_video_only(
+    video_file: VideoOnlyFileEnum = Query(..., description="Select the video-only file to compress"),
+    target_v_bitrate: str = Query("200k", description="Target video bitrate (e.g., 200k, 500k)")
+):
+    """
+    Compresses a video-only asset.
+    Backs up original and optimizes for bandwidth.
+    """
+    result = manager.compress_asset("video_only", video_file.value, target_v_bitrate)
+    return handle_result(result)
 
 
 @app.post("/stream/stop")

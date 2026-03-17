@@ -50,6 +50,11 @@ I have added support for multiple stream modes. You can now choose whether to lo
   - **Background and Audio Mode (`background_and_audio`)**: Continues to use the original settings, taking the background video and combining it with the concatenated audio playlist.
 
 ### Video Compression (`assets/video_only/ganeshmantra.mp4`)
+I3.  **Advanced Stream Options**:
+    -   **Music Categories**: Organizes your music into subfolders.
+    -   **`All_Music`**: Plays everything in your music folder (recursive).
+    -   **`General_Root`**: Plays only the music files in the main `assets/music` folder.
+    -   **Bandwidth Estimation**: Every video choice shows its expected hourly bandwidth right in the label!
 I have pre-compressed the `ganeshmantra.mp4` file as well to ensure it respects your bandwidth limits when used in `video_only` mode:
 - **Total Bitrate**: ~230 kbps (safely under the ~300 kbps / 133 MB/hour target)
 - **Hourly Bandwidth**: ~101 MB / hour
@@ -57,3 +62,29 @@ I have pre-compressed the `ganeshmantra.mp4` file as well to ensure it respects 
 
 ## How to Test
 You can now open the Swagger UI (usually at `http://localhost:8080/docs`), expand the `/stream/start` endpoint, and you will see a dropdown to select your stream mode and a text field to specify the video file you want to use.
+
+---
+
+# Advanced Bandwidth Management
+
+I have implemented tools to help you monitor and control your bandwidth usage directly from the API.
+
+## Features
+
+### 1. Bandwidth-Integrated Dropdowns
+When starting a stream, the video file dropdowns now display the **estimated hourly bandwidth** for each file (e.g., `backgroundVideo__132.5MB_hr`).
+- For background videos, this estimate **includes** the 96kbps audio stream that will be added.
+- For video-only files, it shows the intrinsic bitrate of the combined file.
+
+### 2. Bandwidth Report (`GET /assets/bandwidth-report`)
+This new endpoint provides a detailed JSON report of all your video assets, including:
+- **Resolution** (e.g., 1280x720)
+- **Total Bitrate** in kbps
+- **Hourly Bandwidth** in MB/hour
+- **Optimization Status**: A flag indicating if the file is already optimized for your 90GB/month target.
+
+### 3. On-Demand Compression (`POST /assets/compress`)
+You can now compress any video file directly via the API to hit a specific bandwidth target.
+- **Backs up the original** as `filename_original.mp4`.
+- **Replaces the file** with a 720p, 15fps, bandwidth-optimized version.
+- Allows you to specify a custom `target_v_bitrate` (defaults to 200k).
